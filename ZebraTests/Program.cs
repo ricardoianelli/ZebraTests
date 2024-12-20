@@ -9,6 +9,11 @@
 
             if (!zebraService.Initialize()) return;
             if (!zebraService.DiscoverScanners()) return;
+            
+            zebraService.BarcodeRead += (sender, e) =>
+            {
+                Console.WriteLine($"Barcode: {e.Barcode}, Scanner: {e.ScannerSerialId}");
+            };
 
             zebraService.BeepScanner(serialNumber, 2);
             zebraService.RequestScan(serialNumber);

@@ -5,18 +5,23 @@ namespace ZebraTests;
 
 public class ZebraService
 {
-    private const int ScannerTypeHidKeyboard = 8;
-
+    public event EventHandler<BarcodeEvent> BarcodeRead;
+    public string LastScannedBarcode { get; private set; } = "";
+    
+    private const int DefaultScanTimeout = 1000;
+    
     private readonly CCoreScannerClass _scannerServices;
 
     private readonly Dictionary<string, int> _scannerIdBySerialNumber;
 
-    const int REGISTER_FOR_EVENTS = 1001;
-    const int DEVICE_PULL_TRIGGER = 2011;
-    const int DEVICE_RELEASE_TRIGGER = 2012;
+    private const int RegisterForEvents = 1001;
+    private const int DevicePullTrigger = 2011;
+    private const int DeviceReleaseTrigger = 2012;
     
-    public const int StatusFail = 1;
-    public const int StatusSuccess = 0;
+    private const int StatusFail = 1;
+    private const int StatusSuccess = 0;
+
+    private bool _waitingForBarcodeScan = false;
 
     public ZebraService()
     {
@@ -136,30 +141,69 @@ public class ZebraService
         Console.WriteLine($"Beep status: {status}");
     }
     
-    public void RequestScan(string serialNumber)
+    public void RequestScan(string serialNumber, int timeoutMilliseconds = DefaultScanTimeout)
     {
         int scannerId = GetScannerId(serialNumber);
         if (scannerId == -1) return;
-        
+
         var inXml = $"<inArgs><scannerID>{scannerId}</scannerID></inArgs>";
 
-        ExecuteCommand(DEVICE_PULL_TRIGGER, ref inXml, out string outXml, out int status);
+        // Trigger the scanner
+        ExecuteCommand(DevicePullTrigger, ref inXml, out string outXml, out int status);
         
-        Console.WriteLine($"Scan status: {status}");
+        _waitingForBarcodeScan = true;
+        
+        if (status == 0)
+        {
+            Console.WriteLine("Scanner triggered. Waiting for barcode...");
+            // Wait for the timeout
+            Task.Delay(timeoutMilliseconds).ContinueWith(_ =>
+            {
+                if (!_waitingForBarcodeScan) return;
+                
+                ReleaseTrigger(scannerId);
+                _waitingForBarcodeScan = false;
+            });
+        }
+        else
+        {
+            Console.WriteLine($"Failed to trigger scanner. Status: {status}");
+        }
     }
+
+    private void ReleaseTrigger(int scannerId)
+    {
+        var inXml = $"<inArgs><scannerID>{scannerId}</scannerID></inArgs>";
+        ExecuteCommand(DeviceReleaseTrigger, ref inXml, out string outXml, out int status);
+
+        Console.WriteLine(status == 0
+            ? "Scanner trigger released due to timeout."
+            : $"Failed to release scanner trigger. Status: {status}");
+    }
+
     
     private void HandleBarcodeEvent(short eventType, ref string scanData)
     {
+        Console.WriteLine("BarcodeEvent triggered!");
+        var scannedBarcode = "";
+        var scannerSerial = "";
+        
         try
         {
             var doc = XDocument.Parse(scanData);
-            var barcodeData = doc.Root?.Element("datalabel")?.Value;
-            var barcodeType = doc.Root?.Element("datatype")?.Value;
-
-            if (!string.IsNullOrEmpty(barcodeData))
+            var datalabelHex = doc.Root?.Descendants("datalabel")?.FirstOrDefault()?.Value;
+            var serialId = doc.Root?.Descendants("serialnumber")?.FirstOrDefault()?.Value;
+            
+            if (serialId != null)
             {
-                Console.WriteLine($"Scanned Barcode: {barcodeData}");
-                Console.WriteLine($"Barcode Type: {barcodeType}");
+                scannerSerial = serialId.Trim();
+            }
+
+            if (!string.IsNullOrEmpty(datalabelHex))
+            {
+                scannedBarcode = ParseHexToAscii(datalabelHex);
+                Console.WriteLine($"Scanned Barcode: {scannedBarcode}");
+                _waitingForBarcodeScan = false;
             }
             else
             {
@@ -170,7 +214,24 @@ public class ZebraService
         {
             Console.WriteLine($"Error handling barcode data: {ex.Message}");
         }
+
+        LastScannedBarcode = scannedBarcode;
+        BarcodeRead?.Invoke(this, new BarcodeEvent(scannedBarcode, scannerSerial));
     }
+
+    private string ParseHexToAscii(string hexData)
+    {
+        string[] hexBytes = hexData.Replace("0x", "").Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var asciiChars = new char[hexBytes.Length];
+
+        for (var i = 0; i < hexBytes.Length; i++)
+        {
+            asciiChars[i] = (char)Convert.ToByte(hexBytes[i], 16);
+        }
+
+        return new string(asciiChars);
+    }
+
     
     private string GetInXml(int numberOfParameters, string parameters)
     {
@@ -187,7 +248,7 @@ public class ZebraService
         const int subscribeBarcode = 1;
         string inXml = GetInXml(1, subscribeBarcode.ToString());
 
-        ExecuteCommand(REGISTER_FOR_EVENTS, ref inXml, out _, out var status);
+        ExecuteCommand(RegisterForEvents, ref inXml, out _, out var status);
         Console.WriteLine($"Register for events status: {status}");
     }
 
