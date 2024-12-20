@@ -252,4 +252,42 @@ public class ZebraService
         Console.WriteLine($"Register for events status: {status}");
     }
 
+    public async Task MonitorBarcodeHealth(string serialNumber)
+    {
+        try
+        {
+            while (true)
+            {
+                CheckScannerHealth(serialNumber);
+                await Task.Delay(1000);
+            }
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine(e);
+            throw;
+        }
+    }
+
+    public bool CheckScannerHealth(string serialNumber)
+    {
+        int scannerId = GetScannerId(serialNumber);
+        if (scannerId == -1)
+        {
+            Console.WriteLine($"Health Check Failed: Scanner with serial number {serialNumber} not found.");
+            return false;
+        }
+
+        var inXml = $"<inArgs><scannerID>{scannerId}</scannerID></inArgs>";
+        ExecuteCommand(1005, ref inXml, out string outXml, out int status);
+
+        if (status == StatusSuccess)
+        {
+            Console.WriteLine($"Scanner {serialNumber} is healthy.");
+            return true;
+        }
+
+        Console.WriteLine($"Health Check Failed: Scanner {serialNumber} responded with status {status}.");
+        return false;
+    }
 }
