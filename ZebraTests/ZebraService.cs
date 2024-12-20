@@ -5,6 +5,8 @@ namespace ZebraTests;
 
 public class ZebraService : IDisposable
 {
+    public record BarcodeEvent(string Barcode, string ScannerSerialId);
+
     public event EventHandler<BarcodeEvent> BarcodeRead;
     
     public bool Initialized { get; private set; }
