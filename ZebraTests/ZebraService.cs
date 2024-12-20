@@ -8,19 +8,19 @@ public class ZebraService
     public event EventHandler<BarcodeEvent> BarcodeRead;
     public string LastScannedBarcode { get; private set; } = "";
     
-    private const int DefaultScanTimeout = 1000;
-    
-    private readonly CCoreScannerClass _scannerServices;
+    private const int DefaultScanTimeoutMs = 1000;
 
-    private readonly Dictionary<string, int> _scannerIdBySerialNumber;
-
-    private const int RegisterForEvents = 1001;
-    private const int DevicePullTrigger = 2011;
-    private const int DeviceReleaseTrigger = 2012;
+    private const int OpcodeRegisterForEvents = 1001;
+    private const int OpcodeStatusCheck = 1005;
+    private const int OpcodeDevicePullTrigger = 2011;
+    private const int OpcodeDeviceReleaseTrigger = 2012;
     
     private const int StatusFail = 1;
     private const int StatusSuccess = 0;
 
+    private readonly CCoreScannerClass _scannerServices;
+    private readonly Dictionary<string, int> _scannerIdBySerialNumber;
+    
     private bool _waitingForBarcodeScan = false;
 
     public ZebraService()
@@ -32,13 +32,16 @@ public class ZebraService
     public bool Initialize()
     {
         //Call Open API
-        var scannerTypes = new short[1];    // Scanner Types you are interested in
-        scannerTypes[0] = 1;                    // 1 for all scanner types
-        short numberOfScannerTypes = 1;         // Size of the scannerTypes array 
+        var scannerTypes = new short[]
+        {
+            1
+        };
+        
+        var numberOfScannerTypes = (short) scannerTypes.Length;
 
         _scannerServices.Open(0, scannerTypes, numberOfScannerTypes, out int status);
         
-        if (status == 0)
+        if (status == StatusSuccess)
         {
             Console.WriteLine("CoreScanner service initialized.");
             RegisterForScannerEvents();
@@ -49,7 +52,7 @@ public class ZebraService
             Console.WriteLine($"Failed to initialize CoreScanner service. Status: {status}");
         }
 
-        return status == 0;
+        return status == StatusSuccess;
     }
 
     private void ParseScannersFromXml(string xml)
@@ -90,7 +93,7 @@ public class ZebraService
         try
         {
             _scannerServices.ExecCommand(opcode, ref inXml, out outXml, out status);
-            if (status != 0)
+            if (status != StatusSuccess)
             {
                 Console.WriteLine($"Command failed with status: {status}");
             }
@@ -109,17 +112,15 @@ public class ZebraService
 
         _scannerServices.GetScanners(out numberOfScanners, connectedScannerIDList, out string outXml, out int status);
         
-        if (status == 0)
+        if (status == StatusSuccess)
         {
             ParseScannersFromXml(outXml);
             Console.WriteLine(outXml);
-        }
-        else
-        {
-            Console.WriteLine("Error discovering scanners.");
+            return true;
         }
 
-        return status == 0;
+        Console.WriteLine("Error discovering scanners.");
+        return false;
     }
 
     public void BeepScanner(string serialNumber, int beepPattern)
@@ -141,19 +142,18 @@ public class ZebraService
         Console.WriteLine($"Beep status: {status}");
     }
     
-    public void RequestScan(string serialNumber, int timeoutMilliseconds = DefaultScanTimeout)
+    public void RequestScan(string serialNumber, int timeoutMilliseconds = DefaultScanTimeoutMs)
     {
         int scannerId = GetScannerId(serialNumber);
         if (scannerId == -1) return;
 
         var inXml = $"<inArgs><scannerID>{scannerId}</scannerID></inArgs>";
-
-        // Trigger the scanner
-        ExecuteCommand(DevicePullTrigger, ref inXml, out string outXml, out int status);
+        
+        ExecuteCommand(OpcodeDevicePullTrigger, ref inXml, out string outXml, out int status);
         
         _waitingForBarcodeScan = true;
         
-        if (status == 0)
+        if (status == StatusSuccess)
         {
             Console.WriteLine("Scanner triggered. Waiting for barcode...");
             // Wait for the timeout
@@ -164,19 +164,18 @@ public class ZebraService
                 ReleaseTrigger(scannerId);
                 _waitingForBarcodeScan = false;
             });
+            return;
         }
-        else
-        {
-            Console.WriteLine($"Failed to trigger scanner. Status: {status}");
-        }
+
+        Console.WriteLine($"Failed to trigger scanner. Status: {status}");
     }
 
     private void ReleaseTrigger(int scannerId)
     {
         var inXml = $"<inArgs><scannerID>{scannerId}</scannerID></inArgs>";
-        ExecuteCommand(DeviceReleaseTrigger, ref inXml, out string outXml, out int status);
+        ExecuteCommand(OpcodeDeviceReleaseTrigger, ref inXml, out string outXml, out int status);
 
-        Console.WriteLine(status == 0
+        Console.WriteLine(status == StatusSuccess
             ? "Scanner trigger released due to timeout."
             : $"Failed to release scanner trigger. Status: {status}");
     }
@@ -248,7 +247,7 @@ public class ZebraService
         const int subscribeBarcode = 1;
         string inXml = GetInXml(1, subscribeBarcode.ToString());
 
-        ExecuteCommand(RegisterForEvents, ref inXml, out _, out var status);
+        ExecuteCommand(OpcodeRegisterForEvents, ref inXml, out _, out var status);
         Console.WriteLine($"Register for events status: {status}");
     }
 
@@ -279,7 +278,7 @@ public class ZebraService
         }
 
         var inXml = $"<inArgs><scannerID>{scannerId}</scannerID></inArgs>";
-        ExecuteCommand(1005, ref inXml, out string outXml, out int status);
+        ExecuteCommand(OpcodeStatusCheck, ref inXml, out string outXml, out int status);
 
         if (status == StatusSuccess)
         {
