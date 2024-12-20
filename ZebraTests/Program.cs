@@ -19,8 +19,8 @@
                 Console.WriteLine($"Barcode: {e.Barcode}, Scanner: {e.ScannerSerialId}");
             };
 
-            zebraService.BeepScanner(serialNumber, 2);
-            zebraService.RequestScan(serialNumber);
+            zebraService.Beep(serialNumber, 2);
+            zebraService.Scan(serialNumber);
 
             Console.WriteLine("Waiting for barcode scans. Press Ctrl+C to exit...");
             

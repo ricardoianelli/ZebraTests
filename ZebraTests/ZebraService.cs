@@ -5,7 +5,11 @@ namespace ZebraTests;
 
 public class ZebraService : IDisposable
 {
-    public record BarcodeEvent(string Barcode, string ScannerSerialId);
+    public record BarcodeEvent(string Barcode, string ScannerSerialId)
+    {
+        public string Barcode { get; set; } = Barcode;
+        public string ScannerSerialId { get; set; } = ScannerSerialId;
+    }
 
     public event EventHandler<BarcodeEvent> BarcodeRead;
     
@@ -52,7 +56,7 @@ public class ZebraService : IDisposable
         }
     }
     
-    public bool CheckScannerHealth(string serialNumber)
+    public bool IsConnected(string serialNumber)
     {
         int scannerId = GetScannerId(serialNumber);
         if (scannerId == -1)
@@ -74,7 +78,7 @@ public class ZebraService : IDisposable
         return false;
     }
     
-    public void BeepScanner(string serialNumber, int beepPattern)
+    public void Beep(string serialNumber, int beepPattern)
     {
         int scannerId = GetScannerId(serialNumber);
         if (scannerId == -1) return;
@@ -90,7 +94,7 @@ public class ZebraService : IDisposable
         Console.WriteLine($"Beep status: {status}");
     }
     
-    public void RequestScan(string serialNumber, int timeoutMilliseconds = DefaultScanTimeoutMs)
+    public void Scan(string serialNumber, int timeoutMilliseconds = DefaultScanTimeoutMs)
     {
         int scannerId = GetScannerId(serialNumber);
         if (scannerId == -1) return;
