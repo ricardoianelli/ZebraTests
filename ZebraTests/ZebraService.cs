@@ -3,19 +3,21 @@ using CoreScanner;
 
 namespace ZebraTests;
 
-public class ZebraService
+public class ZebraService : IDisposable
 {
     public event EventHandler<BarcodeEvent> BarcodeRead;
-    public string LastScannedBarcode { get; private set; } = "";
+    
+    public bool Initialized { get; private set; }
+
     
     private const int DefaultScanTimeoutMs = 1000;
 
     private const int OpcodeRegisterForEvents = 1001;
-    private const int OpcodeStatusCheck = 5506;
     private const int OpcodeDevicePullTrigger = 2011;
     private const int OpcodeDeviceReleaseTrigger = 2012;
+    private const int OpcodeBeep = 2018;
+    private const int OpcodeStatusCheck = 5506;
     
-    private const int StatusFail = 1;
     private const int StatusSuccess = 0;
 
     private readonly CCoreScannerClass _scannerServices;
@@ -28,117 +30,61 @@ public class ZebraService
         _scannerServices = new CCoreScannerClass();
         _scannerIdBySerialNumber = new Dictionary<string, int>();
     }
-
-    public bool Initialize()
+    
+    public void Dispose()
     {
-        //Call Open API
-        var scannerTypes = new short[]
+        _scannerServices.BarcodeEvent -= HandleBarcodeEvent;
+        _scannerServices.Close(0, out int status);
+    }
+    
+    public void Initialize()
+    {
+        if (ConnectToService() && DiscoverScanners() && RegisterForScannerEvents())
         {
-            1
-        };
-        
-        var numberOfScannerTypes = (short) scannerTypes.Length;
-
-        _scannerServices.Open(0, scannerTypes, numberOfScannerTypes, out int status);
-        
-        if (status == StatusSuccess)
-        {
+            Initialized = true;
             Console.WriteLine("CoreScanner service initialized.");
-            RegisterForScannerEvents();
-            _scannerServices.BarcodeEvent += HandleBarcodeEvent;
         }
         else
         {
-            Console.WriteLine($"Failed to initialize CoreScanner service. Status: {status}");
-        }
-
-        return status == StatusSuccess;
-    }
-
-    private void ParseScannersFromXml(string xml)
-    {
-        try
-        {
-            var doc = XDocument.Parse(xml);
-            foreach (var scanner in doc.Descendants("scanner"))
-            {
-                string? scannerIdStr = scanner.Element("scannerID")?.Value;
-                string? serialNumber = scanner.Element("serialnumber")?.Value;
-
-                if (scannerIdStr is null || serialNumber is null) continue;
-
-                serialNumber = serialNumber.Trim();
-                int scannerId = int.Parse(scannerIdStr);
-                Console.WriteLine($"Scanner ID: {scannerId}, Serial: {serialNumber}");
-                _scannerIdBySerialNumber[serialNumber] = Convert.ToInt32(scannerId);
-            }
-        }
-        catch (Exception e)
-        {
-            Console.WriteLine($"Error parsing scanners from XML: {e}");
-            throw;
+            Initialized = false;
         }
     }
     
-    public int GetScannerId(string serialNumber)
+    public bool CheckScannerHealth(string serialNumber)
     {
-        if (_scannerIdBySerialNumber.TryGetValue(serialNumber, out int scannerId)) return scannerId;
-        
-        Console.WriteLine($"Serial number {serialNumber} not found.");
-        return -1;
-    }
-
-    public void ExecuteCommand(int opcode, ref string inXml, out string outXml, out int status)
-    {
-        try
+        int scannerId = GetScannerId(serialNumber);
+        if (scannerId == -1)
         {
-            _scannerServices.ExecCommand(opcode, ref inXml, out outXml, out status);
-            if (status != StatusSuccess)
-            {
-                Console.WriteLine($"Command failed with status: {status}");
-            }
+            Console.WriteLine($"Health Check Failed: Scanner with serial number {serialNumber} not found.");
+            return false;
         }
-        catch (Exception e)
-        {
-            Console.WriteLine(e);
-            throw;
-        }
-    }
 
-    public bool DiscoverScanners()
-    {
-        short numberOfScanners;                         // Number of scanners expect to be used 
-        int[] connectedScannerIDList = new int[255];    // List of scanner IDs to be returned 
+        var inXml = $"<inArgs><scannerID>{scannerId}</scannerID></inArgs>";
+        ExecuteCommand(OpcodeStatusCheck, ref inXml, out string outXml, out int status);
 
-        _scannerServices.GetScanners(out numberOfScanners, connectedScannerIDList, out string outXml, out int status);
-        
         if (status == StatusSuccess)
         {
-            ParseScannersFromXml(outXml);
-            Console.WriteLine(outXml);
+            Console.WriteLine($"Scanner {serialNumber} is healthy.");
             return true;
         }
 
-        Console.WriteLine("Error discovering scanners.");
+        Console.WriteLine($"Health Check Failed: Scanner {serialNumber} responded with status {status}.");
         return false;
     }
-
+    
     public void BeepScanner(string serialNumber, int beepPattern)
     {
         int scannerId = GetScannerId(serialNumber);
         if (scannerId == -1) return;
-        
-        // Let's beep the beeper
-        int opcode = 2018;  // Method for Beep the beeper 
-        string outXML;      // Output
-        string inXML = "<inArgs>" +
+
+        string inXml = "<inArgs>" +
                        "<scannerID>1</scannerID>" + // The scanner you need to beep
                        "<cmdArgs>" +
-                       "<arg-int>3</arg-int>" + // 4 high short beep pattern
+                       $"<arg-int>{beepPattern}</arg-int>" + // 4 high short beep pattern
                        "</cmdArgs>" + 
                        "</inArgs>";
 
-        _scannerServices.ExecCommand(opcode, ref inXML, out outXML, out var status);
+        _scannerServices.ExecCommand(OpcodeBeep, ref inXml, out string outXml, out var status);
         Console.WriteLine($"Beep status: {status}");
     }
     
@@ -169,6 +115,85 @@ public class ZebraService
 
         Console.WriteLine($"Failed to trigger scanner. Status: {status}");
     }
+    
+    private bool ConnectToService()
+    {
+        var scannerTypes = new short[] {1};
+        var numberOfScannerTypes = (short) scannerTypes.Length;
+
+        _scannerServices.Open(0, scannerTypes, numberOfScannerTypes, out int status);
+        if (status == StatusSuccess) return true;
+        
+        Console.WriteLine($"Failed to initialize CoreScanner service. Status: {status}");
+        return false;
+    }
+
+    private void ParseScannersFromXml(string xml)
+    {
+        try
+        {
+            var doc = XDocument.Parse(xml);
+            foreach (var scanner in doc.Descendants("scanner"))
+            {
+                string? scannerIdStr = scanner.Element("scannerID")?.Value;
+                string? serialNumber = scanner.Element("serialnumber")?.Value;
+
+                if (scannerIdStr is null || serialNumber is null) continue;
+
+                serialNumber = serialNumber.Trim();
+                int scannerId = int.Parse(scannerIdStr);
+                Console.WriteLine($"Scanner ID: {scannerId}, Serial: {serialNumber}");
+                _scannerIdBySerialNumber[serialNumber] = Convert.ToInt32(scannerId);
+            }
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine($"Error parsing scanners from XML: {e}");
+            throw;
+        }
+    }
+
+    private int GetScannerId(string serialNumber)
+    {
+        if (_scannerIdBySerialNumber.TryGetValue(serialNumber, out int scannerId)) return scannerId;
+        
+        Console.WriteLine($"Serial number {serialNumber} not found.");
+        return -1;
+    }
+
+    private void ExecuteCommand(int opcode, ref string inXml, out string outXml, out int status)
+    {
+        try
+        {
+            _scannerServices.ExecCommand(opcode, ref inXml, out outXml, out status);
+            if (status != StatusSuccess)
+            {
+                Console.WriteLine($"Command failed with status: {status}");
+            }
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine(e);
+            throw;
+        }
+    }
+
+    private bool DiscoverScanners()
+    {
+        var connectedScannerIdList = new int[255];    // List of scanner IDs to be returned 
+
+        _scannerServices.GetScanners(out short numberOfScanners, connectedScannerIdList, out string outXml, out int status);
+        
+        if (status == StatusSuccess)
+        {
+            ParseScannersFromXml(outXml);
+            Console.WriteLine(outXml);
+            return true;
+        }
+
+        Console.WriteLine("Error discovering scanners.");
+        return false;
+    }
 
     private void ReleaseTrigger(int scannerId)
     {
@@ -179,7 +204,6 @@ public class ZebraService
             ? "Scanner trigger released due to timeout."
             : $"Failed to release scanner trigger. Status: {status}");
     }
-
     
     private void HandleBarcodeEvent(short eventType, ref string scanData)
     {
@@ -213,8 +237,7 @@ public class ZebraService
         {
             Console.WriteLine($"Error handling barcode data: {ex.Message}");
         }
-
-        LastScannedBarcode = scannedBarcode;
+        
         BarcodeRead?.Invoke(this, new BarcodeEvent(scannedBarcode, scannerSerial));
     }
 
@@ -230,7 +253,6 @@ public class ZebraService
 
         return new string(asciiChars);
     }
-
     
     private string GetInXml(int numberOfParameters, string parameters)
     {
@@ -242,34 +264,16 @@ public class ZebraService
                + "</inArgs>";
     }
     
-    private void RegisterForScannerEvents()
+    private bool RegisterForScannerEvents()
     {
         const int subscribeBarcode = 1;
         string inXml = GetInXml(1, subscribeBarcode.ToString());
 
         ExecuteCommand(OpcodeRegisterForEvents, ref inXml, out _, out var status);
-        Console.WriteLine($"Register for events status: {status}");
-    }
+        if (status != StatusSuccess) return false;
+        
+        _scannerServices.BarcodeEvent += HandleBarcodeEvent;
+        return true;
 
-    public bool CheckScannerHealth(string serialNumber)
-    {
-        int scannerId = GetScannerId(serialNumber);
-        if (scannerId == -1)
-        {
-            Console.WriteLine($"Health Check Failed: Scanner with serial number {serialNumber} not found.");
-            return false;
-        }
-
-        var inXml = $"<inArgs><scannerID>{scannerId}</scannerID></inArgs>";
-        ExecuteCommand(OpcodeStatusCheck, ref inXml, out string outXml, out int status);
-
-        if (status == StatusSuccess)
-        {
-            Console.WriteLine($"Scanner {serialNumber} is healthy.");
-            return true;
-        }
-
-        Console.WriteLine($"Health Check Failed: Scanner {serialNumber} responded with status {status}.");
-        return false;
     }
 }

@@ -7,8 +7,12 @@
             var serialNumber = "24316523021017";
             ZebraService zebraService = new ZebraService();
 
-            if (!zebraService.Initialize()) return;
-            if (!zebraService.DiscoverScanners()) return;
+            zebraService.Initialize();
+            if (!zebraService.Initialized)
+            {
+                Console.WriteLine("Couldn't initialize Zebra Service!");
+                return;
+            }
             
             zebraService.BarcodeRead += (sender, e) =>
             {
