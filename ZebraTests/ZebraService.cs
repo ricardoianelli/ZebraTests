@@ -11,7 +11,7 @@ public class ZebraService
     private const int DefaultScanTimeoutMs = 1000;
 
     private const int OpcodeRegisterForEvents = 1001;
-    private const int OpcodeStatusCheck = 1005;
+    private const int OpcodeStatusCheck = 5506;
     private const int OpcodeDevicePullTrigger = 2011;
     private const int OpcodeDeviceReleaseTrigger = 2012;
     
@@ -249,23 +249,6 @@ public class ZebraService
 
         ExecuteCommand(OpcodeRegisterForEvents, ref inXml, out _, out var status);
         Console.WriteLine($"Register for events status: {status}");
-    }
-
-    public async Task MonitorBarcodeHealth(string serialNumber)
-    {
-        try
-        {
-            while (true)
-            {
-                CheckScannerHealth(serialNumber);
-                await Task.Delay(1000);
-            }
-        }
-        catch (Exception e)
-        {
-            Console.WriteLine(e);
-            throw;
-        }
     }
 
     public bool CheckScannerHealth(string serialNumber)
