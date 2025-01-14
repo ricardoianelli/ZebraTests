@@ -1,6 +1,6 @@
 # What is it
 
-This is a very simple program to test communication with a barcode scanner connected to your PC via USB.
+This is a very simple program to test communication with a zebra barcode scanner connected to your PC via USB.
 The barcode scanner must be configured as SNAPI for this to work. To learn how to do this, please refer to your barcode scanner documentation, they usually provide barcodes that you can scan and it will automatically configure your scanner.
 
 # How to use it
