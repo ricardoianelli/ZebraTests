@@ -21,5 +21,6 @@ After that, open the solution in your preferred IDE, go to Program.cs and replac
 ![image](https://github.com/user-attachments/assets/95fb85f1-c130-49c8-822f-69fcff9fef29)
 
 When you run the program, you should see some logs telling you if connection was successful, hear 2 beeps (those are test beeps, you can remove them in code if you find them annoying) and it will automatically try to scan a barcode, so keep a barcode in front of your barcode scanner for best results.
+![image](https://github.com/user-attachments/assets/baeddae2-c23e-482d-be56-90cfaa584e6e)
 
 
