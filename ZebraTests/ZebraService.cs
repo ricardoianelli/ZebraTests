@@ -15,6 +15,8 @@ public class ZebraService : IDisposable
     
     public bool Initialized { get; private set; }
 
+    private readonly Dictionary<string, string> _lastScannedBarcodes;
+
 
     private enum Opcodes
     {
@@ -37,6 +39,7 @@ public class ZebraService : IDisposable
     {
         _scannerServices = new CCoreScannerClass();
         _scannerIdBySerialNumber = new Dictionary<string, int>();
+        _lastScannedBarcodes = new Dictionary<string, string>();
     }
     
     public void Dispose()
@@ -98,7 +101,14 @@ public class ZebraService : IDisposable
                        "</inArgs>";
 
         ExecuteCommand(Opcodes.Beep, ref inXml, out string outXml, out int status);
-        Console.WriteLine($"Beep status: {status}");
+    }
+
+    public async Task<string> Scan(string serialNumber, int timeOutInMs = 1000)
+    {
+        _lastScannedBarcodes[serialNumber] = string.Empty;
+
+        RequestScan(serialNumber, timeOutInMs);
+        return await GetNextBarcodeScan(serialNumber, timeOutInMs);
     }
     
     public void RequestScan(string serialNumber, int timeoutMilliseconds = DefaultScanTimeoutMs)
@@ -129,6 +139,22 @@ public class ZebraService : IDisposable
         Console.WriteLine($"Failed to trigger scanner. Status: {status}");
     }
     
+    private async Task<string> GetNextBarcodeScan(string serialNumber, int timeOutInMs = 1000)
+    {
+        var startTime = DateTime.Now;
+        while (string.IsNullOrEmpty(_lastScannedBarcodes[serialNumber]))
+        {
+            if ((DateTime.Now - startTime).TotalMilliseconds > timeOutInMs)
+            {
+                return string.Empty;
+            }
+            
+            await Task.Delay(10);
+        }
+
+        return _lastScannedBarcodes[serialNumber];
+    }
+    
     private bool ConnectToService()
     {
         var scannerTypes = new short[] {1};
@@ -146,7 +172,12 @@ public class ZebraService : IDisposable
         try
         {
             var doc = XDocument.Parse(xml);
-            foreach (var scanner in doc.Descendants("scanner"))
+            var scannerDescendants = doc.Descendants("scanner");
+
+            var scannersFound = scannerDescendants as XElement[] ?? scannerDescendants.ToArray();
+            Console.WriteLine($"Found {scannersFound.Length} scanner(s):");
+            
+            foreach (var scanner in scannersFound)
             {
                 string? scannerIdStr = scanner.Element("scannerID")?.Value;
                 string? serialNumber = scanner.Element("serialnumber")?.Value;
@@ -202,7 +233,6 @@ public class ZebraService : IDisposable
         if (status == StatusSuccess)
         {
             ParseScannersFromXml(outXml);
-            Console.WriteLine(outXml);
             return true;
         }
 
@@ -240,7 +270,7 @@ public class ZebraService : IDisposable
             if (!string.IsNullOrEmpty(datalabelHex))
             {
                 scannedBarcode = ParseHexToAscii(datalabelHex);
-                Console.WriteLine($"Scanned Barcode: {scannedBarcode}");
+                _lastScannedBarcodes[scannerSerial] = scannedBarcode;
                 _waitingForBarcodeScan = false;
             }
             else
