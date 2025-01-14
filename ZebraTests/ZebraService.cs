@@ -15,15 +15,17 @@ public class ZebraService : IDisposable
     
     public bool Initialized { get; private set; }
 
+
+    private enum Opcodes
+    {
+        RegisterForEvents = 1001,
+        DevicePullTrigger = 2011,
+        DeviceReleaseTrigger = 2012,
+        Beep = 2018,
+        StatusCheck = 5506
+    }
     
     private const int DefaultScanTimeoutMs = 1000;
-
-    private const int OpcodeRegisterForEvents = 1001;
-    private const int OpcodeDevicePullTrigger = 2011;
-    private const int OpcodeDeviceReleaseTrigger = 2012;
-    private const int OpcodeBeep = 2018;
-    private const int OpcodeStatusCheck = 5506;
-    
     private const int StatusSuccess = 0;
 
     private readonly CCoreScannerClass _scannerServices;
@@ -41,6 +43,11 @@ public class ZebraService : IDisposable
     {
         _scannerServices.BarcodeEvent -= HandleBarcodeEvent;
         _scannerServices.Close(0, out int status);
+    }
+
+    public List<string> GetConnectedDevices()
+    {
+        return _scannerIdBySerialNumber.Keys.ToList();
     }
     
     public void Initialize()
@@ -66,7 +73,7 @@ public class ZebraService : IDisposable
         }
 
         var inXml = $"<inArgs><scannerID>{scannerId}</scannerID></inArgs>";
-        ExecuteCommand(OpcodeStatusCheck, ref inXml, out string outXml, out int status);
+        ExecuteCommand(Opcodes.StatusCheck, ref inXml, out string outXml, out int status);
 
         if (status == StatusSuccess)
         {
@@ -90,7 +97,7 @@ public class ZebraService : IDisposable
                        "</cmdArgs>" + 
                        "</inArgs>";
 
-        _scannerServices.ExecCommand(OpcodeBeep, ref inXml, out string outXml, out var status);
+        ExecuteCommand(Opcodes.Beep, ref inXml, out string outXml, out int status);
         Console.WriteLine($"Beep status: {status}");
     }
     
@@ -101,7 +108,7 @@ public class ZebraService : IDisposable
 
         var inXml = $"<inArgs><scannerID>{scannerId}</scannerID></inArgs>";
         
-        ExecuteCommand(OpcodeDevicePullTrigger, ref inXml, out string outXml, out int status);
+        ExecuteCommand(Opcodes.DevicePullTrigger, ref inXml, out string outXml, out int status);
         
         _waitingForBarcodeScan = true;
         
@@ -167,11 +174,11 @@ public class ZebraService : IDisposable
         return -1;
     }
 
-    private void ExecuteCommand(int opcode, ref string inXml, out string outXml, out int status)
+    private void ExecuteCommand(Opcodes opcode, ref string inXml, out string outXml, out int status)
     {
         try
         {
-            _scannerServices.ExecCommand(opcode, ref inXml, out outXml, out status);
+            _scannerServices.ExecCommand((int)opcode, ref inXml, out outXml, out status);
             if (status != StatusSuccess)
             {
                 Console.WriteLine($"Command failed with status: {status}");
@@ -188,6 +195,8 @@ public class ZebraService : IDisposable
     {
         var connectedScannerIdList = new int[255];    // List of scanner IDs to be returned 
 
+        _scannerIdBySerialNumber.Clear();
+        
         _scannerServices.GetScanners(out short numberOfScanners, connectedScannerIdList, out string outXml, out int status);
         
         if (status == StatusSuccess)
@@ -204,7 +213,7 @@ public class ZebraService : IDisposable
     private void ReleaseTrigger(int scannerId)
     {
         var inXml = $"<inArgs><scannerID>{scannerId}</scannerID></inArgs>";
-        ExecuteCommand(OpcodeDeviceReleaseTrigger, ref inXml, out string outXml, out int status);
+        ExecuteCommand(Opcodes.DeviceReleaseTrigger, ref inXml, out string outXml, out int status);
 
         Console.WriteLine(status == StatusSuccess
             ? "Scanner trigger released due to timeout."
@@ -275,7 +284,7 @@ public class ZebraService : IDisposable
         const int subscribeBarcode = 1;
         string inXml = GetInXml(1, subscribeBarcode.ToString());
 
-        ExecuteCommand(OpcodeRegisterForEvents, ref inXml, out _, out var status);
+        ExecuteCommand(Opcodes.RegisterForEvents, ref inXml, out _, out var status);
         if (status != StatusSuccess) return false;
         
         _scannerServices.BarcodeEvent += HandleBarcodeEvent;

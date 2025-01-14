@@ -13,6 +13,9 @@
                 Console.WriteLine("Couldn't initialize Zebra Service!");
                 return;
             }
+
+            var connectedDevices = zebraService.GetConnectedDevices();
+            Console.WriteLine($"Connected devices: {string.Join(", ", connectedDevices)}");
             
             zebraService.BarcodeRead += (sender, e) =>
             {
