@@ -11,7 +11,7 @@ public class ZebraService : IDisposable
         public string ScannerSerialId { get; set; } = ScannerSerialId;
     }
 
-    public event EventHandler<BarcodeEvent> BarcodeRead;
+    public event EventHandler<BarcodeEvent>? BarcodeRead;
     
     public bool Initialized { get; private set; }
 
@@ -101,7 +101,7 @@ public class ZebraService : IDisposable
         Console.WriteLine($"Beep status: {status}");
     }
     
-    public void Scan(string serialNumber, int timeoutMilliseconds = DefaultScanTimeoutMs)
+    public void RequestScan(string serialNumber, int timeoutMilliseconds = DefaultScanTimeoutMs)
     {
         int scannerId = GetScannerId(serialNumber);
         if (scannerId == -1) return;

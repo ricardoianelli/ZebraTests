@@ -23,7 +23,7 @@
             };
 
             zebraService.Beep(serialNumber, 2);
-            zebraService.Scan(serialNumber);
+            zebraService.RequestScan(serialNumber);
 
             Console.WriteLine("Waiting for barcode scans. Press Ctrl+C to exit...");
             
